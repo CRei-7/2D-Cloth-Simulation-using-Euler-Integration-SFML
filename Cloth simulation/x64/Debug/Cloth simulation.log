@@ -1,0 +1,33 @@
+﻿  main.cpp
+C:\proj\2d-Cloth-Simulation-using-Euler-Integration\Cloth simulation\main.cpp(35,26): warning C4305: 'initializing': truncation from 'double' to 'float'
+C:\proj\2d-Cloth-Simulation-using-Euler-Integration\Cloth simulation\main.cpp(152,65): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+C:\proj\2d-Cloth-Simulation-using-Euler-Integration\Cloth simulation\main.cpp(152,46): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+C:\proj\2d-Cloth-Simulation-using-Euler-Integration\Cloth simulation\main.cpp(218,77): warning C4244: 'argument': conversion from 'T' to 'float', possible loss of data
+          with
+          [
+              T=int
+          ]
+C:\proj\2d-Cloth-Simulation-using-Euler-Integration\Cloth simulation\main.cpp(218,60): warning C4244: 'argument': conversion from 'T' to 'float', possible loss of data
+          with
+          [
+              T=int
+          ]
+C:\proj\2d-Cloth-Simulation-using-Euler-Integration\Cloth simulation\main.cpp(225,60): warning C4244: '=': conversion from 'T' to 'T', possible loss of data
+          with
+          [
+              T=int
+          ]
+          and
+          [
+              T=float
+          ]
+C:\proj\2d-Cloth-Simulation-using-Euler-Integration\Cloth simulation\main.cpp(226,60): warning C4244: '=': conversion from 'T' to 'T', possible loss of data
+          with
+          [
+              T=int
+          ]
+          and
+          [
+              T=float
+          ]
+  Cloth simulation.vcxproj -> C:\proj\2d-Cloth-Simulation-using-Euler-Integration\x64\Debug\Cloth simulation.exe
