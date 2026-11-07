@@ -3,7 +3,7 @@
 This project implements a 2D mass-spring cloth simulation. A pinned cloth reacts to gravity and wind, slides over a movable circular collision object, and can be dragged, cut and torn through real-time mouse interaction.
 
 <p align="center">
-  <img src="Images/cloth.png" width="30%" style="margin-right: 20px;">
+  <img src="Images/Cloth.png" width="30%" style="margin-right: 20px;">
   <img src="Images/tornCloth.png" width="30%" style="margin-right: 20px;">
   <img src="Images/clothcollision.png" width="30%">
 </p>
