@@ -1,0 +1,33 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+ipch/
+*.VC.db
+*.VC.db-shm
+*.VC.db-wal
+*.VC.opendb
+
+# Build output
+x64/
+Debug/
+Release/
+[Bb]in/
+[Oo]bj/
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.pch
+*.exe
+*.recipe
+*.tlog
+*.log
+
+# Keep the bundled SFML (headers, import libs and DLLs are needed to build and run)
+!sfml/bin/
+!sfml/bin/*.dll
+!sfml/lib/
+!sfml/lib/**

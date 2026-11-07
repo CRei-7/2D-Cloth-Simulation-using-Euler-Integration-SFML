@@ -57,17 +57,37 @@ public:
         position = { posX,posY };
     }
 
+    //move the particle without touching its velocity (used by collision resolution)
+    void SetPosition(Vector2f newPos) {
+        position = newPos;
+    }
+
     //obtaining position of the particle
     Vector2f GetPosition()
     {
         return position;
     }
 
+    Vector2f GetVelocity()
+    {
+        return velocity;
+    }
+
+    void SetVelocity(Vector2f newVelocity)
+    {
+        velocity = newVelocity;
+    }
+
+    bool IsStatic()
+    {
+        return _static;
+    }
+
     void Draw(RenderWindow &window)
     {
         CircleShape points(radius);
         points.setFillColor(color);
-        points.setPosition(position.x - 5, position.y - 5);
+        points.setPosition(position.x - radius, position.y - radius);
         window.draw(points);
     }
     ~Particle() {}

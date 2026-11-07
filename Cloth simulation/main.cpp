@@ -1,11 +1,49 @@
 #include <SFML/Graphics.hpp>
-#include<vector>
-#include<particle.h>
-#include<Spring.h>
+#include <vector>
+#include <cmath>
+#include <cstdlib>
+#include <algorithm>
+#include "particle.h"
+#include "Spring.h"
 
 using namespace sf;
 
 sf::RenderWindow window(sf::VideoMode(1920, 1080), "2D cloth simulation");
+
+//geometry helpers for cutting springs
+static float Dot(Vector2f a, Vector2f b) { return a.x * b.x + a.y * b.y; }
+static float Cross(Vector2f a, Vector2f b) { return a.x * b.y - a.y * b.x; }
+
+//shortest distance from point p to segment ab
+static float PointSegmentDistance(Vector2f p, Vector2f a, Vector2f b) {
+    Vector2f ab = b - a;
+    float lenSq = Dot(ab, ab);
+    if (lenSq < 0.000001f) {
+        Vector2f d = p - a;
+        return std::sqrt(Dot(d, d));
+    }
+    float t = std::max(0.f, std::min(1.f, Dot(p - a, ab) / lenSq));
+    Vector2f closest = a + ab * t;
+    Vector2f d = p - closest;
+    return std::sqrt(Dot(d, d));
+}
+
+//true if segment ab properly crosses segment cd
+static bool SegmentsIntersect(Vector2f a, Vector2f b, Vector2f c, Vector2f d) {
+    float d1 = Cross(b - a, c - a);
+    float d2 = Cross(b - a, d - a);
+    float d3 = Cross(d - c, a - c);
+    float d4 = Cross(d - c, b - c);
+    return ((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0));
+}
+
+//shortest distance between segment ab and segment cd (0 when they cross)
+static float SegmentSegmentDistance(Vector2f a, Vector2f b, Vector2f c, Vector2f d) {
+    if (SegmentsIntersect(a, b, c, d))
+        return 0.f;
+    return std::min(std::min(PointSegmentDistance(a, c, d), PointSegmentDistance(b, c, d)),
+                    std::min(PointSegmentDistance(c, a, b), PointSegmentDistance(d, a, b)));
+}
 
 int main()
 {
@@ -28,12 +66,21 @@ int main()
 
     //stiffness
     float k=5;
-    //fracture point
-    float max_length = 100;
+    //a spring tears once it is stretched beyond this multiple of its rest length
+    const float maxStretchFactor = 2.5f;
+    //how close (in pixels) the mouse path must pass to a spring to cut it
+    const float cutTolerance = 4.f;
+    //distance (in pixels) within which a click picks up a particle
+    const float pickRadius = 10.f;
+
     Vector2f gravity = { 0,5 };
     Vector2f windDirection = { 2,2 };
-    float windScale = 0.1;
+    float windScale = 0.1f;
     float windOffsetSpeed = 1;
+
+    const float physicsStep = 1.f / 144.f;
+    const float maxFrameTime = 0.25f;//avoid a spiral of death after a long stall
+    float accumulator = 0.f;
 
     Clock clock;
     bool toggle = false;//to toggle between displaying points
@@ -44,10 +91,20 @@ int main()
     CircleShape shape(5.f);
     shape.setFillColor(Color::Red);
 
+    //collision object (circle)
+    const float collisionRadius = 50.f;
     Vector2f CollisionPosition = { 1300,500 };
-    CircleShape Collision_object(50.f);
+    CircleShape Collision_object(collisionRadius);
+    Collision_object.setOrigin(collisionRadius, collisionRadius);
     Collision_object.setFillColor(Color::Blue);
-    
+    bool draggingCollider = false;
+
+    //mouse state
+    Vector2f mousePos = { 0,0 };
+    Vector2f prevMousePos = { 0,0 };
+    bool leftHeld = false;
+    bool rightHeld = false;
+
 
     //creating grid of particles
     for (int i = 0; i < column; i++) {
@@ -62,191 +119,191 @@ int main()
     //for springs attached to each particle
     for (int i = 0; i < column; i++) {
         for (int j = 0; j < row; j++) {
-            Spring* spring1;
-            Spring* spring2;
-
             //for right edge particle, no need to add spring on right side
             if (i != column - 1) {
-                spring1 = new Spring(k, disX, particles[i][j], particles[i + 1][j]);
+                springs.push_back(new Spring(k, disX, particles[i][j], particles[i + 1][j]));
             }
 
             //for lower edge, no need to add spring to the downside
             if (j != row - 1) {
-                spring2 = new Spring(k, disY, particles[i][j], particles[i][j+1]);
+                springs.push_back(new Spring(k, disY, particles[i][j], particles[i][j + 1]));
             }
-
-            springs.push_back(spring1);
-            springs.push_back(spring2);
         }
     }
 
+    window.setFramerateLimit(144);
+    prevMousePos = mousePos = Vector2f(Mouse::getPosition(window));
 
     while (window.isOpen())
     {
-        window.setFramerateLimit(144);
-
-        //update spring
-        for (int i = 0; i < springs.size(); i++) {
-            if (springs[i] == NULL)
-                continue;
-
-            //for maximum stretch, spring is cut
-            if (springs[i]->GetSpringLength() > max_length) {
-                springs[i] = NULL;
-                delete(springs[i]);
-                continue;
-            }
-
-            springs[i]->Update();
-        }
-
-        //update particles
-        for (int i = 0; i < column; i++) {
-            for (int j = 0; j < row; j++) {
-                if (toggle_gravity) {
-                    //Adding gravity
-                    particles[i][j]->Forces(gravity);
-                }
-
-                if (toggle_wind) {
-                    //wind force
-                    float noise = windScale + rand() % 2 * windOffsetSpeed;
-                    Vector2f wind = windDirection * noise;
-                    particles[i][j]->Forces(wind);
-                }
-
-                particles[i][j]->Update();
-
-            }
-        }
-
-        for (int i = 0; i < column; i++) {
-            for (int j = 0; j < row; j++) {
-                //distance from the centre of collision object to its surface, since circle, radius = 50
-                float disObj = 50.f;
-                //distance between particle and object
-                float disBetween = float(sqrt(pow(CollisionPosition.x - particles[i][j]->GetPosition().x, 2) + pow(CollisionPosition.y - particles[i][j]->GetPosition().y, 2)));
-                if (disBetween < disObj) {
-                    //vector from centre to the particle position
-                    Vector2f OP = { (particles[i][j]->GetPosition().x - CollisionPosition.x),(particles[i][j]->GetPosition().y - CollisionPosition.y) };
-                    //magnitude of vector
-                    float mag = sqrt(OP.x * OP.x + OP.y * OP.y);
-                    //unit vector
-                    Vector2f dir_OP = OP / mag;
-                    //vector that pushes the particle from its position to the surface of collision body
-                    Vector2f push_force =  {dir_OP.x * (disObj - mag), dir_OP.y * (disObj - mag)};
-
-                    particles[i][j]->newPosition(particles[i][j]->GetPosition().x+push_force.x, particles[i][j]->GetPosition().y+push_force.y);
-                    
-                }
-            }
-        }
-
+        //input: discrete actions come from events, so each press acts exactly once
         sf::Event event;
         while (window.pollEvent(event))
         {
             if (event.type == sf::Event::Closed)
                 window.close();
 
-            Vector2i mousePosition = Mouse::getPosition(window);
-            shape.setPosition(mousePosition.x-5, mousePosition.y-5);//to show position of mouse, wrote it only for testing
+            if (event.type == sf::Event::KeyPressed) {
+                if (event.key.code == Keyboard::Down)
+                    toggle_gravity = !toggle_gravity;
+                else if (event.key.code == Keyboard::Up)
+                    toggle_wind = !toggle_wind;
+                else if (event.key.code == Keyboard::Left) {
+                    toggle_collision = !toggle_collision;
+                    selected = NULL;
+                    draggingCollider = false;
+                }
+            }
 
-            //to cut a spring
-            if (Mouse::isButtonPressed(Mouse::Right)) {
-                for (int i = 0; i < springs.size(); i++) {
-                    if (springs[i] == NULL)
-                        continue;
+            if (event.type == sf::Event::MouseButtonPressed) {
+                Vector2f p((float)event.mouseButton.x, (float)event.mouseButton.y);
 
-                    //obtaining particle position
-                    Vector2f posA = springs[i]->GetParticlep1()->GetPosition();
-                    Vector2f posB = springs[i]->GetParticlep2()->GetPosition();
-
-                    //to check whether or not spring collides with mouse head
-                    bool collisionLine=false;
-                    
-                    if ((mousePosition.x >= posA.x && mousePosition.x <= posB.x) || (mousePosition.x <= posA.x && mousePosition.x >= posB.x)) {
-                        if (mousePosition.y == int(posA.y) && mousePosition.y == int(posB.y)) {
-                            collisionLine = true;
-                        }
-                        else if ((mousePosition.y > posA.y && mousePosition.y < posB.y) || (mousePosition.y < posA.y && mousePosition.y > posB.y)) {
-                            if (mousePosition.x == int(posA.x) && mousePosition.x == int(posB.x)) {
-                                collisionLine = true;
-                            }
-                            else {
-                                float m = (posA.y - posB.y) / (posA.x - posB.x);
-                                float y = m * (mousePosition.x - posB.x) + posB.y;
-                                if ((y - mousePosition.y) > 0.00001 || (- y + mousePosition.y) > 0.00001) {
-                                    collisionLine = true;
+                if (event.mouseButton.button == Mouse::Left) {
+                    leftHeld = true;
+                    if (toggle_collision) {
+                        //pick the nearest particle within the pick radius
+                        selected = NULL;
+                        float best = pickRadius;
+                        for (int i = 0; i < column; i++) {
+                            for (int j = 0; j < row; j++) {
+                                Vector2f d = particles[i][j]->GetPosition() - p;
+                                float dist = std::sqrt(Dot(d, d));
+                                if (dist < best) {
+                                    best = dist;
+                                    selected = particles[i][j];
                                 }
                             }
                         }
                     }
-                
-                    //removing spring if mouse collides
-                    if (collisionLine) {
-                        springs[i] = NULL;
-                        delete(springs[i]);
-                        break;
+                    else {
+                        //grab the collision object when clicking on it
+                        Vector2f d = CollisionPosition - p;
+                        draggingCollider = std::sqrt(Dot(d, d)) <= collisionRadius;
                     }
                 }
-                
-            }
-
-            //to move selected particle
-            if (Mouse::isButtonPressed(Mouse::Left)) {
-                if (toggle_collision) {
-                    //arbitary distance around which the particle for which particle interacts
-                    float distance = 10;
-
-                    for (int i = 0; i < column; i++) {
-                        for (int j = 0; j < row; j++) {
-                            //distance between particle and mouse
-                            Vector2f pos = particles[i][j]->GetPosition();
-                            float _distance = float(sqrt(pow(pos.x - mousePosition.x, 2) + pow(pos.y - mousePosition.y, 2)));
-
-                            //if inside the bubble where click is noticed
-                            if (_distance < distance) {
-                                distance = _distance;
-                                selected = particles[i][j];
-                                //to drag the particle
-                                //selected->newPosition(mousePosition.x, mousePosition.y);
-                            }
-                        }
-                    }
-                    if (Event::KeyReleased) {
-                        //to drag the particle
-                        selected->newPosition(mousePosition.x, mousePosition.y);
-                    }
+                else if (event.mouseButton.button == Mouse::Right) {
+                    rightHeld = true;
                 }
-                if (!toggle_collision) {
-                    float distance_collision = 50.f;
-                    float _distane_collision = float(sqrt(pow(CollisionPosition.x - mousePosition.x, 2) + pow(CollisionPosition.y - mousePosition.y, 2)));
-                    if (_distane_collision <= distance_collision) {
-                        CollisionPosition.x = mousePosition.x;
-                        CollisionPosition.y = mousePosition.y;
-                    }
+                else if (event.mouseButton.button == Mouse::Middle) {
+                    toggle = !toggle;
                 }
             }
-            
-            if (Mouse::isButtonPressed(Mouse::Middle)) {
-                toggle = !toggle;
+
+            if (event.type == sf::Event::MouseButtonReleased) {
+                if (event.mouseButton.button == Mouse::Left) {
+                    leftHeld = false;
+                    selected = NULL;
+                    draggingCollider = false;
+                }
+                else if (event.mouseButton.button == Mouse::Right) {
+                    rightHeld = false;
+                }
             }
 
-            if (Keyboard::isKeyPressed(Keyboard::Down)) {
-                toggle_gravity = !toggle_gravity;
+            if (event.type == sf::Event::LostFocus) {
+                leftHeld = rightHeld = false;
+                selected = NULL;
+                draggingCollider = false;
+            }
+        }
+
+        //continuous state: current mouse position
+        prevMousePos = mousePos;
+        mousePos = Vector2f(Mouse::getPosition(window));
+        shape.setPosition(mousePos.x - 5, mousePos.y - 5);//to show position of mouse, wrote it only for testing
+
+        //to cut springs: any spring crossed by (or very close to) the mouse path this frame
+        if (rightHeld) {
+            for (int i = 0; i < springs.size(); i++) {
+                if (springs[i] == NULL)
+                    continue;
+
+                Vector2f posA = springs[i]->GetParticlep1()->GetPosition();
+                Vector2f posB = springs[i]->GetParticlep2()->GetPosition();
+
+                if (SegmentSegmentDistance(prevMousePos, mousePos, posA, posB) <= cutTolerance) {
+                    delete springs[i];
+                    springs[i] = NULL;
+                }
+            }
+        }
+
+        //to move the collision object
+        if (draggingCollider)
+            CollisionPosition = mousePos;
+
+        //advance in fixed steps
+        accumulator += std::min(clock.restart().asSeconds(), maxFrameTime);
+
+        while (accumulator >= physicsStep) {
+            accumulator -= physicsStep;
+
+            //keep the dragged particle glued to the mouse
+            if (leftHeld && toggle_collision && selected != NULL)
+                selected->newPosition(mousePos.x, mousePos.y);
+
+            //update spring
+            for (int i = 0; i < springs.size(); i++) {
+                if (springs[i] == NULL)
+                    continue;
+
+                //for maximum stretch, spring is cut
+                if (springs[i]->GetSpringLength() > springs[i]->GetRestLength() * maxStretchFactor) {
+                    delete springs[i];
+                    springs[i] = NULL;
+                    continue;
+                }
+
+                springs[i]->Update();
             }
 
-            if (Keyboard::isKeyPressed(Keyboard::Up)) {
-                toggle_wind = !toggle_wind;
+            //update particles
+            for (int i = 0; i < column; i++) {
+                for (int j = 0; j < row; j++) {
+                    if (toggle_gravity) {
+                        //Adding gravity
+                        particles[i][j]->Forces(gravity);
+                    }
+
+                    if (toggle_wind) {
+                        //wind force
+                        float noise = windScale + rand() % 2 * windOffsetSpeed;
+                        Vector2f wind = windDirection * noise;
+                        particles[i][j]->Forces(wind);
+                    }
+
+                    particles[i][j]->Update();
+                }
             }
 
-            if (Keyboard::isKeyPressed(Keyboard::Left)) {
-                toggle_collision = !toggle_collision;
+            //collision with the circle: push particles to the surface and cancel the velocity component pointing into the object, so they slide instead of sinking/jittering
+            for (int i = 0; i < column; i++) {
+                for (int j = 0; j < row; j++) {
+                    Particle* p = particles[i][j];
+                    if (p->IsStatic())
+                        continue;
+
+                    //vector from centre to the particle position
+                    Vector2f OP = p->GetPosition() - CollisionPosition;
+                    float mag = std::sqrt(Dot(OP, OP));
+                    if (mag >= collisionRadius)
+                        continue;
+
+                    //unit vector (arbitrary direction if the particle is exactly at the centre)
+                    Vector2f dir_OP = mag > 0.0001f ? OP / mag : Vector2f(0.f, -1.f);
+
+                    p->SetPosition(CollisionPosition + dir_OP * collisionRadius);
+
+                    Vector2f v = p->GetVelocity();
+                    float vn = Dot(v, dir_OP);
+                    if (vn < 0.f)
+                        p->SetVelocity(v - dir_OP * vn);
+                }
             }
         }
 
         window.clear();
-        
+
         for (int i = 0; i < column; i++) {
             for (int j = 0; j < row; j++) {
                 if (!toggle) {
@@ -264,10 +321,10 @@ int main()
                 continue;
             spring->draw(window);
         }
-        
+
         window.draw(shape);
 
-        Collision_object.setPosition(CollisionPosition.x-50.f,CollisionPosition.y-50.f);
+        Collision_object.setPosition(CollisionPosition);
         window.draw(Collision_object);
 
         window.display();

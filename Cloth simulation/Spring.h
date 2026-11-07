@@ -31,6 +31,9 @@ public:
 
         //for magnitude
         float mag = sqrt(_vector.x * _vector.x + _vector.y * _vector.y);
+        //coincident particles: no defined direction, skip to avoid NaN
+        if (mag < 0.0001f)
+            return;
         //for extension
         x = mag - length;
 
@@ -63,14 +66,17 @@ public:
         return p2;
     }
 
+    //length of the spring when no force is applied
+    float GetRestLength() {
+        return length;
+    }
+
     float GetSpringLength() {
         Vector2f _vector = p2->GetPosition() - p1->GetPosition();
         float mag = sqrt(_vector.x * _vector.x + _vector.y * _vector.y);
         return mag;
     }
 
-    ~Spring() {
-        delete(p1);
-        delete(p2);
-    }
+    //particles are owned by the particle grid in main, not by the spring
+    ~Spring() {}
 };
